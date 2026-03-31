@@ -1,0 +1,39 @@
+<div
+  style="font-family: Arial, sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; border: 1px solid #ccc; border-radius: 8px;">
+  <h1 style="text-align: center; color: #333;">Frente de Caixa - Verx</h1>
+
+  <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; text-align: center; margin-bottom: 30px;">
+    <h2 style="margin: 0; color: #666;">Saldo Consolidado do Dia</h2>
+    <h1 style="margin: 10px 0 0 0; color: #0056b3; font-size: 3em;">
+      {{ saldoAtual !== null ? (saldoAtual | currency:'BRL') : 'Carregando...' }}
+    </h1>
+  </div>
+
+  <div style="padding: 20px; background-color: #fff; border: 1px solid #eee; border-radius: 8px;">
+    <h3>Novo Lançamento</h3>
+
+    <div style="margin-bottom: 15px;">
+      <label style="display: block; margin-bottom: 5px;">Tipo de Operação:</label>
+      <select [(ngModel)]="novoLancamento.tipo" style="width: 100%; padding: 8px;">
+        <option value="Credito">Entrada (Crédito)</option>
+        <option value="Debito">Saída (Débito)</option>
+      </select>
+    </div>
+
+    <div style="margin-bottom: 15px;">
+      <label style="display: block; margin-bottom: 5px;">Valor (R$):</label>
+      <input type="number" [(ngModel)]="novoLancamento.valor" style="width: 100%; padding: 8px;">
+    </div>
+
+    <div style="margin-bottom: 15px;">
+      <label style="display: block; margin-bottom: 5px;">Descrição:</label>
+      <input type="text" [(ngModel)]="novoLancamento.descricao" placeholder="Ex: Venda no balcão"
+        style="width: 100%; padding: 8px;">
+    </div>
+
+    <button (click)="registrarLancamento()"
+      style="width: 100%; padding: 12px; background-color: #28a745; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">
+      Registrar Transação
+    </button>
+  </div>
+</div>
