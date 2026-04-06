@@ -2,60 +2,74 @@
 
 ## Visão Executiva
 
-A proposta da arquitetura é a **disponibilidade operacional é inegociável**. O uso da separação estratégica entre o domínio transacional ( com foco em resiliência) e o domínio de consolidação (com foco em alta performance), garantimos que a organização nunca perca um registro, mesmo diante de falhas parciais de infraestrutura.
+A proposta da arquitetura usa como premissa que a **disponibilidade operacional** do sistema é o foco principal. O uso da separação estratégica entre o domínio transacional (com foco em resiliência) e o domínio de consolidação (com foco em alta performance), garante que a organização nunca perca um registro, mesmo diante de falhas parciais de infraestrutura.
 
 A arquitetura estabelece uma base escalável e orientada a eventos, o que promove a proteção do core business e prepara o código para a evolução contínua e a rápida integração com novas ferramentas.
 
 ## Contexto de Negócio
 O fluxo de caixa representa o núcleo operacional do varejo. O cenário base endereça uma falha arquitetural comum no setor: a indisponibilidade da frente de caixa (PDV) ocasionada por sobrecarga em serviços analíticos, como a consulta e consolidação de saldos.
 
-O desafio central do projeto é garantir o isolamento do motor de lançamentos (débitos e créditos) para assegurar alta disponibilidade no registro, enquanto viabiliza o consumo de dados consolidados em tempo real. A arquitetura deve suportar picos de acesso na leitura sem onerar a instância de persistência primária e sem impactar o PDV.
+O desafio central do projeto é garantir o isolamento do motor de lançamentos (débitos e créditos) para assegurar alta disponibilidade no registro, enquanto viabiliza o consumo de dados consolidados em tempo real. A arquitetura deve suportar picos de acesso de leitura sem onerar a instância de persistência primária e sem impactar o PDV.
 
 ## Valor de Negócio Gerado
 A arquitetura foi desenhada para garantir a continuidade da operação, mesmo em cenarios de falha do sistema.
 
 Benefícios:
 
-- **Zero perda de vendas**: O módulo de lançamentos opera de forma autônoma e resiliente.
+- **Mitigação de perda de vendas**: O módulo de lançamentos opera de forma autônoma e resiliente.
 - **Escalabilidade sob demanda**: O sistema de consolidação absorve cargas massivas de leitura sem impactar o core transacional.
 - **Resiliência operacional**: Falhas em serviços periféricos não propagam degradação para a operação principal.
 - **Base para crescimento**: A separação por domínios permite evolução para novos relatórios e integrações
 
 ## Domínios e Capacidades de Negócio
-A solução foi desenhada utilizando conceitos de *Domain-Driven Design* (DDD) para alinhar as necessidades do negócio.
 
-**Core Domain:** Gestão Financeira de DPV.
+Baseado em princípios de *Domain-Driven Design* (DDD), isolamos a solução em dois contextos delimitados (*Bounded Contexts*):
 
-| Contexto | Capacidade | Valor para o Negócio |
-|----------|----------|----------------------|
-| PDV | Registrar transações | Garante que nenhuma venda seja perdida, mesmo sob falhas |
-| Consolidação | Apurar saldo diário | Permite tomada de decisão rápida e visão financeira |
+**1. Contexto de Lançamentos (Operacional / Missão Crítica)**
+- **Capacidade:** Registro imutável de fluxo financeiro (débitos e créditos).
+- **Direcionador:** Disponibilidade extrema. A frente de loja não pode sofrer latência de processamentos analíticos.
 
-## Trade-offs Arquiteturais
+**2. Contexto de Consolidação (Analítico / Apoio à Decisão)**
+- **Capacidade:** Apuração e projeção da posição de saldo diário.
+- **Direcionador:** Performance de leitura. Absorve a carga de consultas gerenciais sem concorrer recursos com o transacional.
 
-- **Consistência eventual no consolidado**
-  - Benefício: Isolamento de falhas e absorção de picos de carga.
-  - Impacto: Introdução de retardo na propagação do saldo (aceitável dado o contexto do negócio).
+## Justificativas Arquiteturais e Trade-offs
 
-- **Uso de fila (RabbitMQ)**
-  - Benefício: Desacoplamento e tolerância a falhas
-  - Impacto: Maior complexidade para desenvolver e manter
+Em sistemas financeiros de missão crítica, a arquitetura deve priorizar o gerenciamento cauteloso e pragmático diante das restrições de infraestrutura. As diretrizes adotadas refletem a preferência pela extrema resiliência do caminho crítico de transação (Write-Path).
 
-- **Cache em memória**
-  - Benefício: Redução expressiva de latência e de custos operacionais com infraestrutura.
-  - Impacto: Risco de assimetria temporária entre instâncias no caso de provisionamento horizontal.
+**1. Adoção da Stack Tecnológica (.NET / C#)**
+- **Racional:** Optamos pelo .NET 9 devido ao seu alto throughput de I/O e segurança de tipos. Em serviços financeiros, a robustez do compilador e a precisão decimal são essenciais para evitar falhas silenciosas que costumam ocorrer em runtimes dinâmicos sob carga.
+- **Custo Operacional Associado:** *Footprint* de memória em inatividade (*idle*) levemente superior quando comparado a serviços equivalentes em Go, exigindo alocação base um pouco maior nos *containers* (Pods).
 
-## Atendimento aos Requisitos Não Funcionais
+**2. Resiliência baseada em Mensageria (RabbitMQ)**
+- **Racional:** Escolhemos o RabbitMQ pela sua simplicidade operacional e suporte nativo a padrões de retry e DLQ. Ele atua como um sistema de supressão (*backpressure*), permitindo que a API de lançamentos libere o cliente instantaneamente enquanto o processamento pesado ocorre em segundo plano.
+- **Alternativa Avaliada (Kafka):** Optamos por não utilizar o Kafka para evitar a complexidade de gerenciar um cluster distribuído (ZooKeeper/KRaft), uma vez que o RabbitMQ atende plenamente nosso volume de roteamento transiente.
+- **Risco Assumido e Mitigado:** O uso de filas introduz o risco de represamento de mensagens em caso de falha no consumidor. Mitigamos isso com roteamento *Dead Letter Exchange* (DLX) e monitoramento de *backlog*.
 
-- **Alta disponibilidade (Lançamentos)**:
-  - Arquitetura desacoplada garantindo o funcionamento independente
+**3. CQRS e Consistência Eventual**
+- **Racional:** Isolamos fisicamente os vértices de Escrita e Leitura para evitar concorrência de recursos (*table locks*) durante consultas pesadas. Isso garante que o motor de faturamento nunca dispute IO com relatórios analíticos.
+- **Trade-off Tolerado:** Aceitamos o paradigma de consistência eventual (replicação assíncrona). Priorizamos a rapidez do PDV em detrimento da sincronização imediata do balanço gerencial.
 
-- **50 req/s no consolidado**:
-  - Cache em memória com leitura otimizada
+**4. Performance via Local Cache**
+- **Racional:** Implementamos cache em memória na camada de consulta para garantir tempos de resposta constantes (< 50ms), poupando a base de dados de requisições repetitivas.
+- **Trade-off Tolerado:** Em cenários de escala horizontal, pode ocorrer um delta temporário entre instâncias (cache staleness). Aceitamos esse risco para manter a infraestrutura simples até que o volume exija um cluster Redis distribuído.
 
-- **Tolerância a falhas (> 5%)**:
-  - Processamento assíncrono com uso de fila
-  - Retry com backoff e DLQ para tratamento de falhas
+## Escalabilidade e Resiliência
+
+- **Degradação Graciosa:** Se o sistema de saldos cair, o PDV continua vendendo. Os eventos ficam represados no RabbitMQ.
+- **Idempotência:** O sistema reconhece e ignora eventos duplicados gerados por retentativas de rede, evitando erros de saldo duplicado.
+- **Concurrency Control:** O Worker opera com limites de concorrência controlados para preservar a integridade do banco de dados analítico.
+
+- **Estratégia de Coreografia:** Optou-se por não utilizar orquestradores centrais de transação (padrões complexos como Sagas centralizadas). O serviço emissor apenas publica o evento no barramento (*Message Published*) e encerra o seu ciclo de processamento. A partir desse ponto, o serviço consumidor (*Listener*) assume a responsabilidade de interpretar e processar os dados isoladamente.
+
+## Qualidade e Estratégia de Testes
+
+Nossa confiança na estabilidade financeira reside na **Validação de Infraestrutura Real**, evitando falsos positivos comuns em ambientes mockados.
+
+- **Domínio e Lógica (Unit Tests)**: Foco rigoroso nas invariantes de negócio e regras de cálculo do *Core Domain*.
+- **Integração com Postgres/Rabbit (Integration Tests)**: Utilizamos **Testcontainers** para subir instâncias reais de banco e mensageria durante os testes. Isso garante que o código se comporte exatamente da mesma forma no teste e na produção.
+- **Caminho Crítico (E2E Tests)**: Automatizamos a simulação do fluxo de ponta a ponta: do registro na API de Lançamentos até a confirmação da redução de balanço no Dashboard, validando a integração completa da cadeia.
+- **Idempotência Técnica**: Testamos explicitamente cenários de reentrega de eventos para garantir que o saldo nunca seja afetado por falhas de rede ou duplicidade de mensagens.
 
 ## Visão de Custos e FinOps (Azure)
 
@@ -69,15 +83,32 @@ A escolha de componentes seguiu uma estratégia de baixo TCO. Para suportar as 5
 - Processamento idempotente para evitar duplicidade quando há retry ou reentrega de mensagens
 - Logs auditáveis para rastreabilidade financeira
 
-## Desenho da Solução (C4 Model)
+## Desenho da Arquitetura e Fluxo de Dados
 
-Para facilitar o entendimento entre as áreas técnicas e de negócio, a arquitetura foi documentada em niveis.
+Para facilitar o entendimento direto da topologia técnica e do isolamento adotado, modelamos o fluxo evidenciando a separação entre o motor de lançamentos (escrita) e a consolidação de saldo (leitura).
 
-### Nível 1: Contexto do Sistema
-![Diagrama de Contexto](./docs/c4-model/c4-contexto-do-sistema.png)
+### Topologia de Execução (CQRS & Event-Driven)
 
-### Nível 2: Containers
-![Diagrama de Containers](./docs/c4-model/c4-containers.png)
+![Diagrama de Topologia](./docs/diagramas/diagrama-topologia.png)
+
+### Ciclo de Vida da Transação (Fluxo de Funcionamento)
+
+O ecossistema atua de forma estritamente unidirecional. O trajeto de um lançamento financeiro, desde o ponto de venda até o relatório consolidado, obedece a cinco estágios bem definidos:
+
+1. **Ingestão na Borda Externa:** O PDV envia o comando da transação financeira via REST. A API Transacional valida a assinatura, a autenticação JWT e a integridade da estrutura JSON. Se a requisição for inválida, é imediatamente rejeitada, protegendo o limite do sistema.
+2. **Persistência Bruta (*Write-Path*):** A API Transacional salva a ordem de faturamento no repositório primário (PostgreSQL). Esta operação foca apenas no armazenamento veloz e sequencial da intenção do faturamento, sem processar lógicas de agregação matemática.
+3. **Publicação no Barramento:** Imediatamente após a persistência, a API publica uma notificação segura no RabbitMQ, embutida em um *Integration Event*. Em seguida, retorna uma confirmação HTTP 201 (Created) para o PDV, liberando o terminal físico instantaneamente.
+4. **Reatividade Assíncrona (*Worker*):** De forma paralela e independente, o *Worker Consolidador* consome o evento depositado na fila. Ele realiza as agregações financeiras e executa a persistência final no banco destinado exclusivamente para leitura e relatórios.
+5. **Apuração Gerencial (*Read-Path*):** Quando ocorre o consumo do balanço através da aplicação gerencial, a requisição é interceptada pela API de Consulta. O saldo diário é extraído instantaneamente do *In-Memory Cache*. O banco de dados físico de relatórios só é acionado na ocorrência de um *Cache Miss* (expiração da memória).
+
+### Documentação C4 Model (Estática)
+Como documentação de apoio mais formal, mantemos os recortes nos níveis convencionais do C4 Model:
+
+- **Nível 1: Contexto do Sistema**
+  ![Diagrama de Contexto](./docs/c4-model/c4-contexto-do-sistema.png)
+
+- **Nível 2: Containers**
+  ![Diagrama de Containers](./docs/c4-model/c4-containers.png)
 
 ## Decisões Arquiteturais (ADRs)
 Para atender aos requisitos, algumas escolhas estratégicas foram tomadas:
@@ -88,14 +119,7 @@ Para atender aos requisitos, algumas escolhas estratégicas foram tomadas:
 
  - [**CQRS (Command Query Responsibility Segregation) Lógico**](./docs/adrs/003-separacao-de-leitura-e-escrita.md): Separação clara da modificação de estado (Lançamentos do PDV) e a consulta de saldos (Consolidado).
 
-## Monitoramento e Observabilidade (Roadmap)
-Para garantir a saúde do sistema em ambiente produtivo, a arquitetura está preparada para receber as seguintes ferramentas de telemetria:
 
- - **Tracing Distribuído**: Implementação de OpenTelemetry para rastrear a requisição desde o API Gateway, passando pelo RabbitMQ até o Worker.
-
- - **Logging Estruturado**: Utilização do Serilog para enviar logs em formato JSON para um stack ELK (Elasticsearch, Logstash, Kibana) ou Azure Application Insights.
-
- - **Métricas e Health Checks**: Utilização do pacote nativo Microsoft.Extensions.Diagnostics.HealthChecks exposto para o Prometheus/Grafana e para os liveness probes do Kubernetes.
 
 ## Arquitetura de Transição (Migração)
 Caso esta arquitetura vise substituir um monolito legado, a adoção do padrão Strangler Fig garante a transição contínua.
@@ -133,21 +157,16 @@ npm start
 - **Swagger (API de Consolidado)**: http://localhost:5001/swagger
 - **RabbitMQ Management**: http://localhost:15672 (usuário: guest, senha: guest)
 
-## Alternativas Tecnológicas Consideradas
 
-A arquitetura proposta não é dependente de tecnologia e poderia ser implementada com outras stacks, como Node.js (NestJS), que oferece vantagens em cenários orientados a eventos e I/O intensivo.
 
-No entanto, optou-se por .NET devido a stack principal da organização, reduzindo complexidade operacional e acelerando o processo de desenvolvimento e entrega.
+## Evolução Arquitetural (Roadmap)
 
-## Roadmap
-Visando um ambiente produtivo robusto, as seguintes evoluções são recomendadas:
+A linha de base atual resolve o gargalo crônico do isolamento entre recebimento transacional e apuração analítica. Tendo a garantia operacional fixada, estabelecemos os seguintes avanços programados visando suportar a expansão elástica sistêmica:
 
- - **Observabilidade**: Implementação de de telemetria e tracing.
+- **Observabilidade Estruturada e Tracing Distribuído:** Substituição dos logs textuais locais por uma malha centralizadora (via OpenTelemetry). Isso garantirá rastreio contínuo desde a entrada REST até o processamento no *Worker*, rastreando o percurso do fluxo financeiro.
 
- - **Infraestrutura como Código (IaC)**: Criação de scripts para provisionamento dos recursos em nuvem.
+- **Transição Orientada a Cache Distribuído:** Durante expansão horizontal do serviço de consolidação, a retenção restrita (*In-Memory Cache*) evoluirá para a abordagem distribuída (clusterização baseada em Redis). Esse movimento consolida a uniformidade de estado da aplicação, eliminando desvios isolados (*stale data*) provocados pelo balanceamento de conexões operando paralelo no mesmo instante.
 
- - **Testes de Carga:** Automação de testes com k6 para validação da meta de < 5% perda de requisições sob cargas elevadas.
+- **Resiliência Estrutural (Circuit Breaker):** Inserção do mecanismo de desarme (*Circuit Breaker Pattern*) na integração com os limites de banco. A meta prática compreende o bloqueio de novas requisições em momento sistêmicos irrecuperáveis (*Fail Fast*), evitando que transações represadas saturem permanentemente as *threads* internas de requisição local.
 
- - **Resiliência avançada**: Implementação de Circuit Breaker e Retry Pattern
-
- - **Escalabilidade**: Evolução para cache distribuído para cenários de alta carga
+- **Carga Automatizada em Esteira:** Introdução de injeção pontual destrutiva com apoio de ferramentas de sobrecarga (Padrão k6) diretamente integradas à esteira CI/CD (*Continuous Integration*). Avaliar matematicamente as métricas de tempo de resposta em alto estresse servirá como ponto de aprovação ou reprovação de versões no limite de percentis adequados.

@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\building-blocks\Core.Dominio\Core.Dominio.csproj" />
+    <ProjectReference Include="..\..\..\src\building-blocks\Core.Mensageria\Core.Mensageria.csproj" />
   </ItemGroup>
 
 </Project>
