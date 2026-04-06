@@ -105,9 +105,11 @@ O ecossistema atua de forma estritamente unidirecional. O trajeto de um lançame
 Como documentação de apoio mais formal, mantemos os recortes nos níveis convencionais do C4 Model:
 
 - **Nível 1: Contexto do Sistema**
+
   ![Diagrama de Contexto](./docs/c4-model/c4-contexto-do-sistema.png)
 
 - **Nível 2: Containers**
+
   ![Diagrama de Containers](./docs/c4-model/c4-containers.png)
 
 ## Decisões Arquiteturais (ADRs)
