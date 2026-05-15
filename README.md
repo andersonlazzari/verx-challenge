@@ -137,9 +137,9 @@ Foi utilizado o Docker para facilitar a execução sem a necessidade de instalar
 ### 1. Subir o Backend
 
 ```sh
-git clone [https://github.com/andersonlazzari/verx-challenge.git](https://github.com/andersonlazzari/verx-challenge.git)
+git clone [https://github.com/andersonlazzari/desafio-de-arquitetura.git](https://github.com/andersonlazzari/desafio-de-arquitetura.git)
 
-cd verx-challenge
+cd desafio-de-arquitetura
 
 docker-compose up -d --build
 ```
